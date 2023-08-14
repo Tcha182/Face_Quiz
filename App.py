@@ -7,6 +7,8 @@ from PIL import Image
 import time
 import math
 
+st.set_page_config(page_title='Face Quiz', page_icon='❓')
+
 QUESTION_DURATION = 12  # Duration in seconds
 BONUS_BASE = 1100
 BONUS_OFFSET = 100
