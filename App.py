@@ -78,7 +78,7 @@ def init():
 
 # Function to load the excel file containing the list of people
 def load_table():
-    st.session_state.people_list = pd.read_excel("DATA/People_list.xlsx")
+    st.session_state.people_list = pd.read_csv("DATA/People_list.csv")
 
 # Function to load an image from a given path
 def load_image(image_path):
