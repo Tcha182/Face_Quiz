@@ -29,6 +29,17 @@ TOTAL_FRAMES = SCORE_INCREASE_GIMMICK_DURATION / REFRESH_RATE
 def format_title(title, size=40, weight='bold', align='left'):
     return f"<div style='font-size: {size}px; font-weight: {weight}; text-align: {align};'>{title}</div>"
 
+def standardize_string_column(column: pd.Series) -> pd.Series:
+    """
+    Standardize a string column by stripping whitespaces and converting to lowercase.
+
+    Parameters:
+    - column: The column to be standardized.
+
+    Returns:
+    - Standardized column.
+    """
+    return column.str.strip().str.lower()
 
 difficulty_map = {
     'easy': 1,
@@ -84,6 +95,9 @@ def init():
 # Function to load the excel file containing the list of people
 def load_table():
     st.session_state.people_list = pd.read_csv("DATA/People_list.csv")
+    # Use the standardize_string_column function on the loaded people_list DataFrame
+    st.session_state.people_list['Gender'] = standardize_string_column(st.session_state.people_list['Gender'])
+    st.session_state.people_list['Category'] = standardize_string_column(st.session_state.people_list['Category'])
 
 # Function to load an image from a given path
 def load_image(image_path):
@@ -167,11 +181,11 @@ def generate_dummy_answers(selected_df, people_list, difficulty):
     unique_categories_count = len(unique_categories)
     
     for _, question in selected_df.iterrows():
-        # Filter candidates with the same gender as the current question
-        candidates = people_list[people_list['Gender'] == question['Gender']]
+        # Filter candidates with the same gender as the current question (case-insensitive)
+        candidates = people_list[people_list['Gender'] == question['Gender'].lower()]
         
         # Calculate category probabilities
-        category_probs = np.where(candidates['Category'] == question['Category'], 0.7, 0.3 / (unique_categories_count - 1))
+        category_probs = np.where(candidates['Category'] == question['Category'].lower(), 0.7, 0.3 / (unique_categories_count - 1))
         
         # Calculate fame level probabilities
         level_probs = np.array([difficulty_distribution[level-1] for level in candidates['Fame_Level']])
