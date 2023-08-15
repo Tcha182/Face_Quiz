@@ -102,19 +102,19 @@ def probabilistic_round_selection(possible_questions, asked_df, categories_share
     current_round_questions = []
 
     for _ in range(20):
-        # If the possible_questions pool lacks a specific combination of category and difficulty level
-        unique_combos_in_asked = asked_df.groupby(['Category', 'Fame_Level']).size().reset_index()
-        for _, row in unique_combos_in_asked.iterrows():
-            if (row['Category'] not in possible_questions['Category'].unique()) or \
-               (row['Fame_Level'] not in possible_questions[possible_questions['Category'] == row['Category']]['Fame_Level'].unique()):
-                # Rollback questions from the specific combination
-                combo_to_revert = asked_df[(asked_df['Category'] == row['Category']) & 
-                                           (asked_df['Fame_Level'] == row['Fame_Level']) &
-                                           (~asked_df['Name'].isin(current_round_questions))]
-                possible_questions = pd.concat([possible_questions, combo_to_revert], ignore_index=True)
-                asked_df = asked_df.drop(combo_to_revert.index)
+        if not asked_df.empty:
+            # If the possible_questions pool lacks a specific combination of category and difficulty level
+            unique_combos_in_asked = asked_df[asked_df['Category'].isin(categories_share.keys())].groupby(['Category', 'Fame_Level']).size().reset_index()
+            
+            for _, row in unique_combos_in_asked.iterrows():
+                if (row['Category'] not in possible_questions['Category'].unique()) or \
+                   (row['Fame_Level'] not in possible_questions[possible_questions['Category'] == row['Category']]['Fame_Level'].unique()):
+                    combo_to_revert = asked_df[(asked_df['Category'] == row['Category']) & 
+                                               (asked_df['Fame_Level'] == row['Fame_Level']) &
+                                               (~asked_df['Name'].isin(current_round_questions))]
+                    possible_questions = pd.concat([possible_questions, combo_to_revert], ignore_index=True)
+                    asked_df = asked_df.drop(combo_to_revert.index)
 
-        # If the pool is still empty after the rollback, break the loop
         if possible_questions.empty:
             break
 
@@ -125,7 +125,8 @@ def probabilistic_round_selection(possible_questions, asked_df, categories_share
         possible_questions['Prob'] = possible_questions['Category_Prob'] * possible_questions['Level_Prob'] / possible_questions['Same_Cat_Level_Count']
 
         # Normalize the probabilities
-        possible_questions['Prob'] = possible_questions['Prob'] / possible_questions['Prob'].sum()
+        prob_sum = possible_questions['Prob'].sum()
+        possible_questions['Prob'] = possible_questions['Prob'] / prob_sum
 
         # Pick a question based on the probabilities
         chosen_row = np.random.choice(possible_questions.index, p=possible_questions['Prob'].values)
@@ -186,7 +187,6 @@ def generate_dummy_answers(selected_df, people_list, difficulty):
     return dummy_answers
 
 def start_quiz():
-
     # Initialize score and streak
     st.session_state.score = 0
     st.session_state.display_score = 0
@@ -199,28 +199,29 @@ def start_quiz():
     selected_difficulty = difficulty_map[st.session_state.selected_difficulty]
     selected_categories = [key for key, value in checkbox_dict.items() if value]
     
+    # Filter all questions to only the selected categories
     st.session_state.all_questions = st.session_state.people_list[st.session_state.people_list['Category'].isin(selected_categories)]
     
     # Create possible_questions by removing previously asked questions from all_questions
     st.session_state.possible_questions = st.session_state.all_questions[~st.session_state.all_questions['Name'].isin(st.session_state.asked_df['Name'])]
 
+    # Compute categories_share based on the all_questions (already filtered for selected categories)
     category_counts = st.session_state.all_questions['Category'].value_counts()
     total_counts = category_counts.sum()
-    unique_categories = category_counts.index.tolist()
     categories_share = category_counts / total_counts
     categories_share = categories_share.to_dict()
-    
-    asked_df = st.session_state.asked_df.copy()
-    
+
+    # Run the corrected probabilistic_round_selection function
     st.session_state.asked_df, st.session_state.selected_df = probabilistic_round_selection(st.session_state.possible_questions, 
-                                                                            asked_df, 
-                                                                            categories_share, 
-                                                                            selected_difficulty)
+                                                                                              st.session_state.asked_df, 
+                                                                                              categories_share,
+                                                                                              selected_difficulty)
 
     st.session_state.dummy_answers = generate_dummy_answers(st.session_state.selected_df, st.session_state.people_list, selected_difficulty)
 
     st.session_state.selected_df['Image_Path'] = 'DATA/Pictures/' + st.session_state.selected_df['Name'].str.replace(' ', '_') + '.png'
     st.session_state.selected_df['Image'] = st.session_state.selected_df['Image_Path'].apply(load_image)
+    
     
     st.session_state.answers = {}
     st.session_state.state = 2
@@ -298,7 +299,6 @@ def display_question():
     progress_bar = st.empty()
     progress_bar.progress(1.0) 
   
-    #col3.title(f"{st.session_state.score}", anchor=False)
     # Get the current question
     question = st.session_state.selected_df.iloc[st.session_state.counter]
     
@@ -324,15 +324,13 @@ def display_question():
         st.session_state.t_end = st.session_state.question_start_times[st.session_state.counter] + 1
 
     cols[1].subheader("Who is this person?", anchor=False)
-    for y in range(3):
+    for y in range(2):
         cols[1].markdown("\n")
     colz = cols[1].columns(2)
 
     # Get the answer from the user
     for i in range(4):
         colz[(i//2)].button(options[i], key=f"option_{i+1}", on_click=submit_answer, args=(options[i],), use_container_width=True)
-    
-    #cols[1].markdown("Who is this person?")
 
     st.markdown(f"{question['Short_Description']}")
 
@@ -401,7 +399,8 @@ def display_results():
     formatted_score = "{:,}".format(score).replace(",", " ")
 
     # Display the formatted score using a title
-    col3.title(formatted_score, anchor=False)
+    #col3.title(formatted_score, anchor=False)
+    col3.markdown(f"<h1 style='text-align: right;'>{formatted_score}</h1>", unsafe_allow_html=True)
 
     # Display each question, the user's answer, and the correct answer
     for i in range(20):
@@ -436,16 +435,48 @@ def display_results():
 def reset():
     st.session_state.clear()
 
+
+##### FOR DEBUG PURPOSES
+# # import json
+# # # Convert session state to a serializable format
+# # def serialize_session_state(state):
+# #     serializable_state = {}
+# #     for key, value in state.items():
+# #         if isinstance(value, pd.DataFrame):
+# #             # Convert DataFrame to CSV string
+# #             serializable_state[key] = {
+# #                 "__type__": "DataFrame",
+# #                 "data": value.to_csv(index=False)
+# #             }
+# #         else:
+# #             serializable_state[key] = value
+# #     return serializable_state
+
 # Main function
 def main():
 
     #st.empty()
 
-    # Reset button
-    #reset_button = st.button('Reset Game', on_click=reset)
+    #### FOR DEBUG PURPOSES
+    # # Reset button
+    # #reset_button = st.button('Reset Game', on_click=reset)
 
-    #st.session_state
+    # # st.session_state
     
+    # # # Save the serializable session state to a JSON file
+    # # serialized_state = serialize_session_state(st.session_state)
+    # # with open('session_state.json', 'w') as f:
+    # #     json.dump(serialized_state, f)
+
+    # # # Create a download button in Streamlit for the JSON file
+    # # st.download_button(
+    # #     label="Download session state",
+    # #     data=open('session_state.json', 'rb'),
+    # #     file_name='session_state.json',
+    # #     mime='application/json'
+    # # )
+
+
     # Initialize session state variables
     if "people_list" not in st.session_state:
         init()
