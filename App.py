@@ -294,7 +294,7 @@ def display_question():
 
     col2.markdown("<h1 style='text-align: right; '>Score:</h1>", unsafe_allow_html=True)
     score_placeholder = col3.empty()
-    score_placeholder.title(f"{st.session_state.display_score}", anchor=False)
+    score_placeholder.markdown(f"<h1 style='text-align: right; '>{st.session_state.display_score}</h1>", unsafe_allow_html=True)
 
     progress_bar = st.empty()
     progress_bar.progress(1.0) 
@@ -352,7 +352,7 @@ def display_question():
         st.session_state.display_score = compute_next_display_score(st.session_state.display_score, st.session_state.score, remaining_frames, total_frames, lambda_=5)
         
         # Display the score
-        score_placeholder.title(f"{st.session_state.display_score}", anchor=False)
+        score_placeholder.markdown(f"<h1 style='text-align: right; '>{st.session_state.display_score}</h1>", unsafe_allow_html=True)
 
         # Check if QUESTION_DURATION seconds have passed
         if elapsed_time > QUESTION_DURATION:
