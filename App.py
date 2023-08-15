@@ -9,6 +9,10 @@ import math
 
 st.set_page_config(page_title='Face Quiz', page_icon='❓')
 
+# Apply custom CSS
+with open("style.css") as f:
+    st.markdown('<style>{}</style>'.format(f.read()), unsafe_allow_html=True)
+
 QUESTION_DURATION = 12  # Duration in seconds
 BONUS_BASE = 1100
 BONUS_OFFSET = 100
@@ -248,7 +252,7 @@ def start_quiz():
 # Function to display the form for starting the quiz
 def display_form():
 
-    st.title("Face Quiz")
+    st.title("Face Quiz", anchor=False)
 
     st.write("\n")
 
