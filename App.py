@@ -391,16 +391,12 @@ def display_results():
 
     st.empty()
 
-    s = ""
-    if st.session_state.correct_answers > 1:
-        s = "s"
-
     if st.session_state.correct_answers == 20:
         st.balloons()
         st.subheader("Congratulations! You answered **all** 20 questions correctly.", anchor=False)
     else:
         # Display correct answer count and success rate
-        st.write(f"You answered {st.session_state.correct_answers} question{s} correctly out of 20 ({int(st.session_state.correct_answers/20*100)}%).")
+        st.write(f"You answered {st.session_state.correct_answers} out of 20 questions correctly ({int(st.session_state.correct_answers/20*100)}%).")
 
     # Display the total score
     col1, colx, col2, col3 = st.columns([2, 3, 5, 3])
