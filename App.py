@@ -10,7 +10,7 @@ import math
 st.set_page_config(page_title='Face Quiz', page_icon='❓')
 
 # Apply custom CSS
-with open("style.css") as f:
+with open("Style.css") as f:
     st.markdown('<style>{}</style>'.format(f.read()), unsafe_allow_html=True)
 
 QUESTION_DURATION = 12  # Duration in seconds
