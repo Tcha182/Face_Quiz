@@ -1,0 +1,4 @@
+/* Initially hide these elements */
+ header,footer {
+    visibility: hidden;
+}
