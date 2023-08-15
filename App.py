@@ -324,12 +324,9 @@ def display_question():
         st.session_state.t_end = st.session_state.question_start_times[st.session_state.counter] + 1
 
     cols[1].subheader("Who is this person?", anchor=False)
-
-    colz = cols[1].columns(2)
-
     for y in range(3):
-        for i in range(0,2):
-            colz[i].markdown("\n")
+        cols[1].markdown("\n")
+    colz = cols[1].columns(2)
 
     # Get the answer from the user
     for i in range(4):
