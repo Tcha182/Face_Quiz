@@ -26,12 +26,15 @@ LAMBDA = 5
 
 TOTAL_FRAMES = SCORE_INCREASE_GIMMICK_DURATION / REFRESH_RATE
 
+def format_title(title, size=40, weight='bold', align='left'):
+    return f"<div style='font-size: {size}px; font-weight: {weight}; text-align: {align};'>{title}</div>"
+
+
 difficulty_map = {
     'easy': 1,
     'medium': 2,
     'hard': 3
 }
-
 
 def calculate_exponential_time_bonus(elapsed_time):
     bonus = BONUS_BASE * np.exp(COEFFICIENT * elapsed_time / QUESTION_DURATION) - BONUS_OFFSET
@@ -292,9 +295,10 @@ def display_question():
     # Display the total score
     col1, col2, col3 = st.columns([7,3,3])
 
-    col2.markdown("<h1 style='text-align: right; '>Score:</h1>", unsafe_allow_html=True)
+    col2.markdown(format_title("Score:",align='right'), unsafe_allow_html=True)
+
     score_placeholder = col3.empty()
-    score_placeholder.markdown(f"<h1 style='text-align: right; '>{st.session_state.display_score}</h1>", unsafe_allow_html=True)
+    score_placeholder.markdown(format_title(st.session_state.display_score,align='right'), unsafe_allow_html=True)
 
     progress_bar = st.empty()
     progress_bar.progress(1.0) 
@@ -304,7 +308,7 @@ def display_question():
     
     # Display the question
 
-    col1.title(f"{st.session_state.counter+1}/20",anchor=False)
+    col1.markdown(format_title(f"{st.session_state.counter+1}/20"),unsafe_allow_html=True)
     
     cols = st.columns([4,6])
 
@@ -352,7 +356,7 @@ def display_question():
         st.session_state.display_score = compute_next_display_score(st.session_state.display_score, st.session_state.score, remaining_frames, total_frames, lambda_=5)
         
         # Display the score
-        score_placeholder.markdown(f"<h1 style='text-align: right;'>{st.session_state.display_score}</h1>", unsafe_allow_html=True)
+        score_placeholder.markdown(format_title(st.session_state.display_score,align='right'), unsafe_allow_html=True)
 
         # Check if QUESTION_DURATION seconds have passed
         if elapsed_time > QUESTION_DURATION:
@@ -366,7 +370,6 @@ def display_question():
         
         # Sleep before updating again
         time.sleep(REFRESH_RATE)
-
 
 
 # Function to display the quiz results
@@ -389,18 +392,16 @@ def display_results():
     col1, colx, col2, col3 = st.columns([2, 3, 5, 3])
 
     col1.markdown("\n")
-    col1.markdown("\n")
     new_game_button = col1.button('New game', on_click=new_game, use_container_width=True)
 
-    col2.markdown("<h1 style='text-align: right; '>Your score:</h1>", unsafe_allow_html=True)
+    col2.markdown(format_title("Your score:", align='right'), unsafe_allow_html=True)
 
     score = st.session_state.score
     # Format the score with spaces as thousands separator
     formatted_score = "{:,}".format(score).replace(",", " ")
 
     # Display the formatted score using a title
-    #col3.title(formatted_score, anchor=False)
-    col3.markdown(f"<h1 style='text-align: right;'>{formatted_score}</h1>", unsafe_allow_html=True)
+    col3.markdown(format_title(formatted_score,align='right'), unsafe_allow_html=True)
 
     # Display each question, the user's answer, and the correct answer
     for i in range(20):
