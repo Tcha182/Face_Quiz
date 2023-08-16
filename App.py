@@ -1,17 +1,17 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from itertools import repeat
 import random
-from PIL import Image
+# from PIL import Image
 import time
 import math
+import base64
 
 st.set_page_config(page_title='Face Quiz', page_icon='❓')
 
 # Apply custom CSS
 with open("Style.css") as f:
-    st.markdown('<style>{}</style>'.format(f.read()), unsafe_allow_html=True)
+    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 QUESTION_DURATION = 12  # Duration in seconds
 BONUS_BASE = 1100
@@ -103,13 +103,42 @@ def load_table():
     st.session_state.people_list['Gender'] = standardize_string_column(st.session_state.people_list['Gender'])
     st.session_state.people_list['Category'] = standardize_string_column(st.session_state.people_list['Category'])
 
-# Function to load an image from a given path
-def load_image(image_path):
+# # Function to load an image from a given path
+# def load_image(image_path):
+#     try:
+#         return Image.open(image_path)
+#     except (IOError, SyntaxError) as e:
+#         st.error(f"Could not load image at {image_path}: {e}")
+#         return None
+
+def load_image_base64(image_path):
     try:
-        return Image.open(image_path)
-    except (IOError, SyntaxError) as e:
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode('UTF-8')
+    except Exception as e:
         st.error(f"Could not load image at {image_path}: {e}")
         return None
+
+def display_image_base64(image_base64, width_percent=100):
+    """Wrap the base64 encoded image in HTML and return the string for markdown.
+    
+    Args:
+    - image_base64 (str): The base64 encoded image string.
+    - width_percent (int): The width percentage for the image. Default is 100.
+    
+    Returns:
+    - str: The HTML string to use with markdown.
+    """
+    if image_base64:
+        html = f"""
+        <div class='custom-image-container'>
+            <img class='custom-image' style='width:{width_percent}%' src='data:image/png;base64,{image_base64}'>
+        </div>
+        """
+        return html
+    else:
+        st.warning("No image provided.")
+        return ""
 
 def new_game():
     st.session_state.state = 1
@@ -250,8 +279,8 @@ def start_quiz():
     st.session_state.dummy_answers = generate_dummy_answers(st.session_state.selected_df, st.session_state.people_list, selected_difficulty)
 
     st.session_state.selected_df['Image_Path'] = 'DATA/Pictures/' + st.session_state.selected_df['Name'].str.replace(' ', '_') + '.png'
-    st.session_state.selected_df['Image'] = st.session_state.selected_df['Image_Path'].apply(load_image)
-    
+    # st.session_state.selected_df['Image'] = st.session_state.selected_df['Image_Path'].apply(load_image)
+    st.session_state.selected_df['Image_Base64'] = st.session_state.selected_df['Image_Path'].apply(load_image_base64)    
     
     st.session_state.answers = {}
     st.session_state.state = 2
@@ -337,9 +366,10 @@ def display_question():
 
     col1.markdown(format_title(f"{st.session_state.counter+1}/20"),unsafe_allow_html=True)
     
-    cols = st.columns([4,6])
+    cols = st.columns([5,5])
 
-    cols[0].image(question['Image'], use_column_width=True)
+    # cols[0].image(question['Image'], use_column_width=True)
+    cols[0].markdown(display_image_base64(question['Image_Base64'],70), unsafe_allow_html=True)
 
     # Define possible answers
     options = [question['Name']] + st.session_state.dummy_answers[question['Name']]
@@ -355,8 +385,7 @@ def display_question():
         st.session_state.t_end = st.session_state.question_start_times[st.session_state.counter] + 1
 
     cols[1].subheader("Who is this person?", anchor=False)
-    for y in range(2):
-        cols[1].markdown("\n")
+    cols[1].markdown("\n")
     colz = cols[1].columns(2)
 
     # Get the answer from the user
@@ -412,7 +441,7 @@ def display_results():
         st.write(f"You answered {st.session_state.correct_answers} out of 20 questions correctly ({int(st.session_state.correct_answers/20*100)}%).")
 
     # Display the total score
-    col1, colx, col2, col3 = st.columns([2, 3, 5, 3])
+    col1, colx, col2, col3 = st.columns([3, 3, 5, 3])
 
     col1.markdown("\n")
     new_game_button = col1.button('New game', on_click=new_game, use_container_width=True)
@@ -431,14 +460,16 @@ def display_results():
 
         st.write("-----")
 
-        col1, col2, col3 = st.columns([2,8,3])
-        image = st.session_state.selected_df.iloc[i]['Image']
+        col1, col2, col3 = st.columns([3,8,3])
+        # image = st.session_state.selected_df.iloc[i]['Image']
+        image = st.session_state.selected_df.iloc[i]['Image_Base64']
         name = st.session_state.selected_df.iloc[i]['Name']
         text = st.session_state.selected_df.iloc[i]['Short_Description']
 
         breakdown = st.session_state.score_breakdown[i]
 
-        col1.image(image, use_column_width=True)
+        # col1.image(image, use_column_width=True)
+        col1.markdown(display_image_base64(image,90), unsafe_allow_html=True)
 
         if breakdown['total_score'] != 0:
             col2.subheader(f":white_check_mark: {name}",anchor=False)

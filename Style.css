@@ -1,8 +1,17 @@
 /* Initially hide these elements */
- header,footer {
+ 
+header,footer {
     visibility: hidden;
 }
+
 body {
     overflow-x: hidden;
     width: 100%;
+}
+
+.custom-image-container {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    overflow: hidden;
 }
