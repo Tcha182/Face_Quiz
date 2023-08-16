@@ -2,3 +2,7 @@
  header,footer {
     visibility: hidden;
 }
+body {
+    overflow-x: hidden;
+    width: 100%;
+}

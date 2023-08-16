@@ -215,11 +215,20 @@ def start_quiz():
     st.session_state.multiplier = 1
 
     checkbox_dict = {category: st.session_state[category] for category in st.session_state.people_list['Category'].unique().tolist()}
-    
+        
     # Retrieve the selected difficulty from the session state
     selected_difficulty = difficulty_map[st.session_state.selected_difficulty]
     selected_categories = [key for key, value in checkbox_dict.items() if value]
     
+    # Bug prevention right here!
+    if len(selected_categories) == 0:
+        with st.spinner("What did you expect?"):
+            time.sleep(2)
+        with st.spinner("Select at least one category to start the quiz!"):
+            time.sleep(3)
+        st.session_state.state = 1
+        return
+
     # Filter all questions to only the selected categories
     st.session_state.all_questions = st.session_state.people_list[st.session_state.people_list['Category'].isin(selected_categories)]
     
