@@ -310,6 +310,7 @@ def display_form():
 
 # Function to handle submit answer button click
 def submit_answer(answer):
+
     # Calculate elapsed time inside this function
     elapsed_time = time.time() - st.session_state.question_start_times[st.session_state.counter]
 
@@ -323,7 +324,6 @@ def submit_answer(answer):
         base_score += 100000
         st.balloons()
         time.sleep(2)
-        st.empty()
 
     time_bonus = round(calculate_exponential_time_bonus(elapsed_time)) if is_correct else 0
     total_score = round(st.session_state.multiplier * (base_score + time_bonus)) if is_correct else 0
