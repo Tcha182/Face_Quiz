@@ -290,7 +290,7 @@ def start_quiz():
 # Function to display the form for starting the quiz
 def display_form():
 
-    st.title("Face Quiz", anchor=False)
+    st.title("Face Quiz :birthday: ", anchor=False)
 
     st.write("\n")
 
