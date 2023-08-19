@@ -317,6 +317,12 @@ def submit_answer(answer):
     is_correct = answer == st.session_state.selected_df.iloc[st.session_state.counter]['Name']
 
     base_score = round(BASE_SCORES[st.session_state.selected_df.iloc[st.session_state.counter]['Fame_Level']]) if is_correct else 0
+
+    # Birthday special
+    if is_correct and st.session_state.selected_df.iloc[st.session_state.counter]['Name'] == "Virginie James": 
+        base_score += 100000
+        st.balloons()
+
     time_bonus = round(calculate_exponential_time_bonus(elapsed_time)) if is_correct else 0
     total_score = round(st.session_state.multiplier * (base_score + time_bonus)) if is_correct else 0
     
@@ -363,7 +369,6 @@ def display_question():
     question = st.session_state.selected_df.iloc[st.session_state.counter]
     
     # Display the question
-
     col1.markdown(format_title(f"{st.session_state.counter+1}/20"),unsafe_allow_html=True)
     
     cols = st.columns([5,5])
@@ -416,6 +421,7 @@ def display_question():
 
         # Check if QUESTION_DURATION seconds have passed
         if elapsed_time > QUESTION_DURATION:
+
             # Store the lack of answer
             submit_answer("No Answer")
             st.experimental_rerun()
