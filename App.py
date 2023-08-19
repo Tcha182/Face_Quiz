@@ -322,6 +322,7 @@ def submit_answer(answer):
     if is_correct and st.session_state.selected_df.iloc[st.session_state.counter]['Name'] == "Virginie James": 
         base_score += 100000
         st.balloons()
+        time.sleep(2)
 
     time_bonus = round(calculate_exponential_time_bonus(elapsed_time)) if is_correct else 0
     total_score = round(st.session_state.multiplier * (base_score + time_bonus)) if is_correct else 0
