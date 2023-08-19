@@ -323,6 +323,7 @@ def submit_answer(answer):
         base_score += 100000
         st.balloons()
         time.sleep(2)
+        st.empty()
 
     time_bonus = round(calculate_exponential_time_bonus(elapsed_time)) if is_correct else 0
     total_score = round(st.session_state.multiplier * (base_score + time_bonus)) if is_correct else 0
