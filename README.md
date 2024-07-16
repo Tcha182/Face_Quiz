@@ -11,8 +11,8 @@ This application is a game where you gain points by recognizing famous persons. 
 
 ## Features
 
+- Probabilistic question-picking engine, minimizing recurring questions on consecutive runs while ensuring consistent distribution of categories and difficulty levels.
 - Dynamic and interactive quiz interface.
-- Recognition of famous faces to score points.
 - Scoring based on accuracy and response time.
 - Streaks and multipliers to enhance gameplay.
 - Review of correct and incorrect answers at the end of the quiz.
