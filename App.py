@@ -6,8 +6,13 @@ import random
 import time
 import math
 import base64
+from concurrent.futures import ThreadPoolExecutor
+import gcs_utils
 
 st.set_page_config(page_title='Face Quiz', page_icon='❓')
+
+# Specify your GCS bucket name
+GS_BUCKET_NAME = st.secrets["GS_CREDENTIALS"]["GS_BUCKET_NAME"]
 
 # Apply custom CSS
 with open("Style.css") as f:
@@ -94,30 +99,28 @@ def update_multiplier(is_correct):
 
 # Function to initialize the app by loading the list of people
 def init():
-    load_table()
+    load_table_from_gcs()
 
 # Function to load the excel file containing the list of people
-def load_table():
-    st.session_state.people_list = pd.read_csv("DATA/People_list.csv")
-    # Use the standardize_string_column function on the loaded people_list DataFrame
+def load_table_from_gcs():
+    data = gcs_utils.download_from_gcs(GS_BUCKET_NAME, "DATA/People_list.csv")
+    st.session_state.people_list = pd.read_csv(data)
     st.session_state.people_list['Gender'] = standardize_string_column(st.session_state.people_list['Gender'])
     st.session_state.people_list['Category'] = standardize_string_column(st.session_state.people_list['Category'])
 
-# # Function to load an image from a given path
-# def load_image(image_path):
-#     try:
-#         return Image.open(image_path)
-#     except (IOError, SyntaxError) as e:
-#         st.error(f"Could not load image at {image_path}: {e}")
-#         return None
-
-def load_image_base64(image_path):
+def load_image_base64_from_gcs(image_blob_name):
     try:
-        with open(image_path, "rb") as img_file:
-            return base64.b64encode(img_file.read()).decode('UTF-8')
+        image_bytes = gcs_utils.download_from_gcs(GS_BUCKET_NAME, image_blob_name)
+        return base64.b64encode(image_bytes.read()).decode('UTF-8')
     except Exception as e:
-        st.error(f"Could not load image at {image_path}: {e}")
+        st.error(f"Could not load image from GCS at {image_blob_name}: {e}")
         return None
+
+
+def load_images_in_parallel(paths, max_threads=20):
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        return list(executor.map(load_image_base64_from_gcs, paths))
+
 
 def display_image_base64(image_base64, width_percent=100):
     """Wrap the base64 encoded image in HTML and return the string for markdown.
@@ -278,9 +281,9 @@ def start_quiz():
 
     st.session_state.dummy_answers = generate_dummy_answers(st.session_state.selected_df, st.session_state.people_list, selected_difficulty)
 
-    st.session_state.selected_df['Image_Path'] = 'DATA/Pictures/' + st.session_state.selected_df['Name'].str.replace(' ', '_') + '.png'
-    # st.session_state.selected_df['Image'] = st.session_state.selected_df['Image_Path'].apply(load_image)
-    st.session_state.selected_df['Image_Base64'] = st.session_state.selected_df['Image_Path'].apply(load_image_base64)    
+    st.session_state.selected_df['Image_GCS_Path'] = 'DATA/Pictures/' + st.session_state.selected_df['Name'].str.replace(' ', '_') + '.png'
+    image_paths = st.session_state.selected_df['Image_GCS_Path'].tolist()
+    st.session_state.selected_df['Image_Base64'] = load_images_in_parallel(image_paths)   
     
     st.session_state.answers = {}
     st.session_state.state = 2
@@ -420,11 +423,11 @@ def display_question():
 
             # Store the lack of answer
             submit_answer("No Answer")
-            st.experimental_rerun()
+            st.rerun()
         
         # Check if an answer is selected
         elif st.session_state.counter in st.session_state.answers:
-            st.experimental_rerun()
+            st.rerun()
         
         # Sleep before updating again
         time.sleep(REFRESH_RATE)
