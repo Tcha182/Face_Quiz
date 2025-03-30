@@ -24,11 +24,9 @@ venv/
 # Pytest cache
 .pytest_cache/
 
-# Streamlit cache files
-.streamlit/
-.cache/
-# Streamlit-specific cache for files
-.cache_data/
+# Streamlit secret
+secrets.toml
+
 
 # Logs
 *.log

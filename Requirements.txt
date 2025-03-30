@@ -1,3 +1,0 @@
-streamlit
-pandas
-google-cloud-storage
