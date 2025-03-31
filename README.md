@@ -5,7 +5,7 @@ This application is a game where you gain points by recognizing famous persons. 
 ## Learning Objectives
 
 - **Streamlit**: Utilized for creating a dynamic and interactive user interface.
-- **GPT-3.5**: Used for generating the list of persons and small descriptions for each person.
+- **GPT-4o-mini**: Used for generating the list of persons and small descriptions for each person.
 - **Web Scraping**: Employed to gather pictures from Wikipedia for the listed persons.
 - **Image Processing**: Applied facial recognition algorithms to normalize and standardize all pictures.
 
@@ -38,13 +38,13 @@ The app is available here: [Face Quiz](https://facequiz.streamlit.app/)
 - math
 - base64
 - OpenCV
-- GPT-3.5 (API integration)
+- OpenAI (API integration)
 
 ## Technical Details
 
-- **Streamlit**: The entire UI is built using Streamlit, making it easy to create and manage the interactive components.
-- **GPT-3.5**: The list of famous persons and their descriptions were generated using GPT-3.5, demonstrating the integration of AI-generated content.
-- **Web Scraping**: Pictures of famous persons were scraped from Wikipedia to ensure a diverse and comprehensive image dataset.
+- **Streamlit**: The UI is built using Streamlit, for simplicity.
+- **GPT-4o-mini**: The list of famous persons and their descriptions were generated using GPT, demonstrating the integration of AI-generated content.
+- **Web Scraping**: Pictures of famous persons were scraped from Wikipedia to ensure that they are free to uset.
 - **Image Processing**: OpenCV was used for facial recognition and image normalization, ensuring that all pictures are centered on the face and standardized.
 
 ## License
