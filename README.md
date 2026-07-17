@@ -16,6 +16,7 @@ This application is a game where you gain points by recognizing famous persons. 
 - Scoring based on accuracy and response time.
 - Streaks and multipliers to enhance gameplay.
 - Review of correct and incorrect answers at the end of the quiz.
+- **Create your own category**: type any topic (e.g. *tennis players*) and the app builds a brand-new quiz category on the fly — an LLM generates the list of people with descriptions, their portraits are fetched from Wikipedia, and OpenCV detects and crops the faces to the standard format before everything is saved to Google Cloud Storage.
 
 ## Usage
 
@@ -33,19 +34,32 @@ The app is available here: [Face Quiz](https://facequiz.streamlit.app/)
 - streamlit
 - pandas
 - numpy
-- random
-- time
-- math
-- base64
-- OpenCV
-- OpenAI (API integration)
+- google-cloud-storage
+- openai
+- requests
+- opencv-python-headless
+- Pillow
+
+## Configuration
+
+The app expects the following Streamlit secrets (`.streamlit/secrets.toml`):
+
+```toml
+OPENAI_API_KEY = "sk-..."       # used by the "Create a category" feature
+# OPENAI_MODEL = "gpt-4o-mini"  # optional, defaults to gpt-4o-mini
+
+[GS_CREDENTIALS]
+GS_BUCKET_NAME = "your-bucket"
+google_credentials_json = '{...service account JSON...}'
+```
 
 ## Technical Details
 
 - **Streamlit**: The UI is built using Streamlit, for simplicity.
-- **GPT-4o-mini**: The list of famous persons and their descriptions were generated using GPT, demonstrating the integration of AI-generated content.
-- **Web Scraping**: Pictures of famous persons were scraped from Wikipedia to ensure that they are free to uset.
-- **Image Processing**: OpenCV was used for facial recognition and image normalization, ensuring that all pictures are centered on the face and standardized.
+- **LLM integration**: The lists of famous persons and their descriptions are generated with an OpenAI model (gpt-4o-mini by default) — both for the original dataset and live, whenever a user creates a new category from the app.
+- **Wikipedia**: Portraits are fetched from Wikipedia through the MediaWiki API to ensure that they are free to use.
+- **Image Processing**: OpenCV is used for face detection and image normalization, ensuring that all pictures are centered on the face and standardized (square, 400×400 PNG).
+- **Google Cloud Storage**: Both the people list (CSV) and the processed pictures are stored in a GCS bucket.
 
 ## License
 

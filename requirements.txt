@@ -1,3 +1,8 @@
 streamlit
 pandas
+numpy
 google-cloud-storage
+openai
+requests
+opencv-python-headless>=4.5,<5  # 5.x removed the built-in Haar cascades used for face detection
+Pillow
