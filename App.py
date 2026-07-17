@@ -5,6 +5,8 @@ import random
 import time
 import math
 import base64
+import hmac
+from datetime import date
 from concurrent.futures import ThreadPoolExecutor
 import gcs_utils
 import category_builder
@@ -112,7 +114,19 @@ def load_table_from_gcs():
 def standardize_people_list(people_list):
     people_list['Gender'] = standardize_string_column(people_list['Gender'])
     people_list['Category'] = standardize_string_column(people_list['Category'])
+
+    # Provenance columns; rows from before this feature default to 'original'
+    if 'Source' not in people_list.columns:
+        people_list['Source'] = 'original'
+    if 'Created_At' not in people_list.columns:
+        people_list['Created_At'] = ''
+    people_list['Source'] = people_list['Source'].fillna('original')
+    people_list['Created_At'] = people_list['Created_At'].fillna('')
     return people_list
+
+def save_people_list(people_list):
+    csv_bytes = people_list.to_csv(index=False).encode('utf-8')
+    gcs_utils.upload_bytes_to_gcs(GS_BUCKET_NAME, PEOPLE_LIST_BLOB, csv_bytes, content_type="text/csv")
 
 def load_image_base64_from_gcs(image_blob_name):
     try:
@@ -326,7 +340,7 @@ def display_form():
 
     st.write("\n")
 
-    play_tab, create_tab = st.tabs(["Play", "➕ Create a category"])
+    play_tab, create_tab, manage_tab = st.tabs(["Play", "➕ Create a category", "🛠️ Manage"])
 
     with play_tab:
         unique_categories = st.session_state.people_list['Category'].unique().tolist()
@@ -346,6 +360,9 @@ def display_form():
 
     with create_tab:
         display_create_category()
+
+    with manage_tab:
+        display_manage_categories()
 
 # Function to display the "create your own category" tab
 def display_create_category():
@@ -376,6 +393,89 @@ def display_create_category():
             st.warning(f"The category '{category_clean}' already exists. Pick another name, or play it from the Play tab.")
         else:
             build_new_category(category_clean, n_people)
+
+# Function to display the admin tab for reviewing and removing categories
+def display_manage_categories():
+
+    admin_password = st.secrets.get("ADMIN_PASSWORD", "")
+    if not admin_password:
+        st.info("Category management is disabled. Set an ADMIN_PASSWORD secret to enable it.")
+        return
+
+    if not st.session_state.get("admin_unlocked"):
+        password = st.text_input("Admin password", type="password", key="admin_password_input")
+        if st.button("Unlock", key="admin_unlock"):
+            if hmac.compare_digest(password, admin_password):
+                st.session_state.admin_unlocked = True
+                st.rerun()
+            else:
+                st.error("Wrong password.")
+        return
+
+    # Show the outcome of a deletion completed on the previous run
+    result = st.session_state.pop("category_deleted_result", None)
+    if result:
+        st.success(f"Deleted the '{result['category']}' category ({result['people']} people, "
+                   f"{result['pictures']} pictures removed from storage).")
+
+    people_list = st.session_state.people_list
+
+    st.subheader("Categories", anchor=False)
+    overview = (people_list.groupby('Category')
+                .agg(People=('Name', 'count'),
+                     Source=('Source', lambda s: ' + '.join(sorted(set(s)))),
+                     Created=('Created_At', 'max'))
+                .reset_index())
+    st.dataframe(overview, width='stretch', hide_index=True)
+
+    user_categories = sorted(people_list.loc[people_list['Source'] == 'user', 'Category'].unique())
+    if user_categories:
+        st.write(f"User-created categories: **{', '.join(user_categories)}**")
+    else:
+        st.write("No user-created categories yet.")
+
+    st.subheader("Delete a category", anchor=False)
+    all_categories = sorted(people_list['Category'].unique())
+    target = st.selectbox("Category to delete", all_categories, key="delete_category_select")
+    st.caption("Removes the category's people from the quiz. Pictures are deleted from storage "
+               "only for user-created entries; original pictures are kept.")
+    confirmed = st.checkbox(f"Yes, permanently delete '{target}'", key="delete_category_confirm")
+    if st.button("Delete category", type="primary", disabled=not confirmed, key="delete_category_button"):
+        delete_category(target)
+
+# Function to delete a category's rows and its user-created pictures
+def delete_category(category):
+    people_list = st.session_state.people_list
+    doomed = people_list[people_list['Category'] == category]
+    remaining = people_list[people_list['Category'] != category].reset_index(drop=True)
+
+    try:
+        save_people_list(remaining)
+    except Exception as e:
+        st.error(f"Could not save the updated people list: {e}")
+        return
+
+    # Only clean up pictures of user-created people who are gone from the list entirely
+    deleted_pictures = 0
+    for _, row in doomed.iterrows():
+        if row['Source'] == 'user' and row['Name'] not in remaining['Name'].values:
+            try:
+                gcs_utils.delete_from_gcs(GS_BUCKET_NAME, category_builder.blob_name_for(row['Name']))
+                deleted_pictures += 1
+            except Exception:
+                pass  # An orphaned picture is harmless; the list is already saved
+
+    st.session_state.people_list = remaining
+    # Drop removed people from the asked-questions history as well
+    st.session_state.asked_df = st.session_state.asked_df[
+        ~st.session_state.asked_df['Name'].isin(doomed['Name'])]
+
+    st.session_state.category_deleted_result = {
+        "category": category,
+        "people": len(doomed),
+        "pictures": deleted_pictures,
+    }
+    st.rerun()
 
 # Function to run the full category creation pipeline and persist the results
 def build_new_category(category, n_people):
@@ -425,12 +525,13 @@ def build_new_category(category, n_people):
             'Category': category,
             'Fame_Level': person['fame_level'],
             'Short_Description': person['short_description'],
+            'Source': 'user',
+            'Created_At': date.today().isoformat(),
         } for person in added])
 
         try:
             updated_list = standardize_people_list(pd.concat([people_list, new_rows], ignore_index=True))
-            csv_bytes = updated_list.to_csv(index=False).encode('utf-8')
-            gcs_utils.upload_bytes_to_gcs(GS_BUCKET_NAME, PEOPLE_LIST_BLOB, csv_bytes, content_type="text/csv")
+            save_people_list(updated_list)
         except Exception as e:
             status.update(label="Category generation failed", state="error")
             st.error(f"Could not save the updated people list: {e}")
@@ -526,7 +627,7 @@ def display_question():
 
     # Get the answer from the user
     for i in range(4):
-        colz[(i//2)].button(options[i], key=f"option_{i+1}", on_click=submit_answer, args=(options[i],), use_container_width=True)
+        colz[(i//2)].button(options[i], key=f"option_{i+1}", on_click=submit_answer, args=(options[i],), width='stretch')
 
     st.markdown(f"{question['Short_Description']}")
 
@@ -583,7 +684,7 @@ def display_results():
     col1, colx, col2, col3 = st.columns([3, 3, 5, 3])
 
     col1.markdown("\n")
-    new_game_button = col1.button('New game', on_click=new_game, use_container_width=True)
+    new_game_button = col1.button('New game', on_click=new_game, width='stretch')
 
     col2.markdown(format_title("Your score:", align='right'), unsafe_allow_html=True)
 

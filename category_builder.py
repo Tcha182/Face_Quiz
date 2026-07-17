@@ -19,14 +19,20 @@ from PIL import Image
 from openai import OpenAI
 
 WIKI_API_URL = "https://en.wikipedia.org/w/api.php"
-HTTP_HEADERS = {"User-Agent": "FaceQuiz/1.0 (https://facequiz.streamlit.app)"}
+WIKIDATA_API_URL = "https://www.wikidata.org/w/api.php"
+COMMONS_API_URL = "https://commons.wikimedia.org/w/api.php"
+HTTP_HEADERS = {"User-Agent": "FaceQuizBot/1.0 (https://facequiz.streamlit.app/; [redacted])"}
 REQUEST_TIMEOUT = 20  # seconds
 
-OUTPUT_IMAGE_SIZE = 400  # px, square
-FACE_MARGIN = 0.8  # extra space around the detected face box, as a fraction of its size
-MIN_IMAGE_SIDE = 150  # px, reject Wikipedia images smaller than this
+# Portrait format, matching the original dataset: a 500x500 face crop with a
+# circular alpha mask and a grey ring border, on a 520x520 transparent canvas.
+OUTPUT_IMAGE_SIZE = 500  # px, square face crop before the border is added
+FACE_ZOOM_OUT_FACTOR = 2.0  # crop square side relative to the detected face box
+CIRCLE_BORDER_SIZE = 10  # px
+CIRCLE_BORDER_COLOR = [175, 175, 175, 255]  # RGBA grey ring
+MIN_IMAGE_SIDE = 150  # px, reject source images smaller than this
 
-VALID_GENDERS = {"male", "female"}
+VALID_GENDERS = {"male", "female", "other"}
 VALID_FAME_LEVELS = {1, 2, 3}
 
 LLM_SYSTEM_PROMPT = "You are a careful assistant that produces structured data for a face-recognition quiz."
@@ -37,13 +43,32 @@ Rules:
 - Only real people who have an English Wikipedia page with a portrait photo of their face.
 - Use the exact name of their English Wikipedia page (without any disambiguation suffix in parentheses).
 - fame_level: 1 = world famous, 2 = well known, 3 = known mostly to fans of the field. Aim for a roughly even split across the three levels.
-- Include a mix of genders when the category allows it.
+- Include a mix of genders when the category allows it. Use "other" only when neither "male" nor "female" applies.
 - short_description: one sentence of at most 20 words describing the person. It is shown as a hint during the quiz, so it MUST NOT contain the person's name (first or last) or initials.
 - Do not include any of these people, they are already in the quiz: {excluded}
-
-Respond with JSON only, in this exact shape:
-{{"people": [{{"name": "...", "gender": "male", "fame_level": 1, "short_description": "..."}}]}}
 """
+
+LLM_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "people": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "gender": {"type": "string", "enum": ["male", "female", "other"]},
+                    "fame_level": {"type": "integer", "enum": [1, 2, 3]},
+                    "short_description": {"type": "string"},
+                },
+                "required": ["name", "gender", "fame_level", "short_description"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["people"],
+    "additionalProperties": False,
+}
 
 
 def blob_name_for(person_name):
@@ -70,7 +95,10 @@ def generate_people_with_llm(category, existing_names, n=18):
             {"role": "system", "content": LLM_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ],
-        response_format={"type": "json_object"},
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "people_list", "strict": True, "schema": LLM_RESPONSE_SCHEMA},
+        },
         temperature=0.7,
     )
     data = json.loads(response.choices[0].message.content)
@@ -111,19 +139,66 @@ def _validate_person(entry):
 
 
 def fetch_wikipedia_image(name):
-    """Return the raw bytes of the person's Wikipedia portrait, or None."""
+    """Return the raw bytes of the person's portrait, or None.
+
+    Tries the Wikipedia page image first (exact title, then search), and falls
+    back to the person's Wikidata image (P18) if Wikipedia has none."""
     image_url = _query_page_image(name)
     if image_url is None:
         # The exact title didn't resolve; fall back to a Wikipedia search.
         title = _search_wikipedia_title(name)
         if title:
             image_url = _query_page_image(title)
+    if image_url is None:
+        image_url = _query_wikidata_image(name)
     if image_url is None or image_url.lower().endswith(".svg"):
         return None
 
     response = requests.get(image_url, headers=HTTP_HEADERS, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     return response.content
+
+
+def _query_wikidata_image(name):
+    """Find the person's Wikidata entity and return the URL of its image (P18), or None."""
+    try:
+        search = requests.get(WIKIDATA_API_URL, params={
+            "action": "wbsearchentities",
+            "search": name,
+            "language": "en",
+            "format": "json",
+            "type": "item",
+            "limit": 5,
+        }, headers=HTTP_HEADERS, timeout=REQUEST_TIMEOUT)
+        search.raise_for_status()
+        for result in search.json().get("search", []):
+            qid = result["id"]
+            claims = requests.get("https://www.wikidata.org/wiki/Special:EntityData/" + qid + ".json",
+                                  headers=HTTP_HEADERS, timeout=REQUEST_TIMEOUT).json()
+            image_claims = claims["entities"][qid].get("claims", {}).get("P18", [])
+            for claim in image_claims:
+                filename = claim.get("mainsnak", {}).get("datavalue", {}).get("value")
+                if filename:
+                    return _query_commons_file_url(filename)
+    except (requests.RequestException, KeyError, ValueError):
+        pass
+    return None
+
+
+def _query_commons_file_url(filename):
+    """Resolve a Wikimedia Commons file name to its direct URL, or None."""
+    response = requests.get(COMMONS_API_URL, params={
+        "action": "query",
+        "titles": f"File:{filename}",
+        "prop": "imageinfo",
+        "iiprop": "url",
+        "format": "json",
+    }, headers=HTTP_HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    for page in response.json().get("query", {}).get("pages", {}).values():
+        if page.get("imageinfo"):
+            return page["imageinfo"][0]["url"]
+    return None
 
 
 def _query_page_image(title):
@@ -167,10 +242,12 @@ def _get_face_cascade():
 
 
 def detect_and_crop_face(image_bytes):
-    """Crop a square PNG centered on the largest detected face.
+    """Build a circular portrait centered on the largest detected face.
 
-    Returns the PNG bytes, or None if the image is unusable (too small,
-    unreadable, or no face found)."""
+    Matches the format of the original dataset: the face box is zoomed out to a
+    square, resized to OUTPUT_IMAGE_SIZE, masked to a circle with a grey ring
+    border on a transparent canvas. Returns the RGBA PNG bytes, or None if the
+    image is unusable (too small, unreadable, or no face found)."""
     try:
         pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     except Exception:
@@ -200,10 +277,10 @@ def detect_and_crop_face(image_bytes):
     x, y, w, h = max(faces, key=lambda face: face[2] * face[3])
     x, y, w, h = (int(v / detection_scale) for v in (x, y, w, h))
 
-    # The cascade box excludes hair and chin, so grow it and shift it up a little.
+    # Zoom out around the face box to a square, clamped to the image bounds
     center_x = x + w / 2
-    center_y = y + h / 2 - 0.1 * h
-    half_side = max(w, h) * (1 + FACE_MARGIN) / 2
+    center_y = y + h / 2
+    half_side = max(w, h) * FACE_ZOOM_OUT_FACTOR / 2
     half_side = min(half_side, width / 2, height / 2)
 
     left = int(np.clip(center_x - half_side, 0, width - 2 * half_side))
@@ -213,9 +290,46 @@ def detect_and_crop_face(image_bytes):
     cropped = pil_image.crop((left, top, left + side, top + side))
     cropped = cropped.resize((OUTPUT_IMAGE_SIZE, OUTPUT_IMAGE_SIZE), Image.LANCZOS)
 
+    portrait = mask_to_circle_with_border(np.array(cropped.convert("RGBA")))
+
     output = io.BytesIO()
-    cropped.save(output, format="PNG")
+    Image.fromarray(portrait).save(output, format="PNG")
     return output.getvalue()
+
+
+def mask_to_circle_with_border(image, border_size=CIRCLE_BORDER_SIZE, border_color=None):
+    """Apply a circular alpha mask with a ring border to an RGBA image array,
+    reproducing the format of the original dataset's portraits."""
+    if border_color is None:
+        border_color = CIRCLE_BORDER_COLOR
+
+    # Circular mask: pixels outside the circle become fully transparent
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    center = (image.shape[1] // 2, image.shape[0] // 2)
+    radius = min(image.shape[:2]) // 2
+    cv2.circle(mask, center, radius, 1, -1)
+
+    masked_image = image.copy()
+    masked_image[mask == 0] = [0, 0, 0, 0]
+
+    # Transparent border around the image, then the ring drawn on top
+    bordered_image = cv2.copyMakeBorder(
+        masked_image,
+        top=border_size,
+        bottom=border_size,
+        left=border_size,
+        right=border_size,
+        borderType=cv2.BORDER_CONSTANT,
+        value=[0, 0, 0, 0],
+    )
+    cv2.circle(
+        bordered_image,
+        (bordered_image.shape[1] // 2, bordered_image.shape[0] // 2),
+        radius,
+        border_color,
+        border_size,
+    )
+    return bordered_image
 
 
 def build_person_picture(name):
