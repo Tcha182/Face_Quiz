@@ -2,22 +2,25 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import random
-# from PIL import Image
 import time
 import math
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import gcs_utils
+import category_builder
 
 st.set_page_config(page_title='Face Quiz', page_icon='❓')
 
 # Specify your GCS bucket name
 GS_BUCKET_NAME = st.secrets["GS_CREDENTIALS"]["GS_BUCKET_NAME"]
 
+PEOPLE_LIST_BLOB = "DATA/People_list.csv"
+
 # Apply custom CSS
 with open("Style.css") as f:
     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
+QUESTIONS_PER_ROUND = 20
 QUESTION_DURATION = 12  # Duration in seconds
 BONUS_BASE = 1100
 BONUS_OFFSET = 100
@@ -101,12 +104,15 @@ def update_multiplier(is_correct):
 def init():
     load_table_from_gcs()
 
-# Function to load the excel file containing the list of people
+# Function to load the CSV file containing the list of people
 def load_table_from_gcs():
-    data = gcs_utils.download_from_gcs(GS_BUCKET_NAME, "DATA/People_list.csv")
-    st.session_state.people_list = pd.read_csv(data)
-    st.session_state.people_list['Gender'] = standardize_string_column(st.session_state.people_list['Gender'])
-    st.session_state.people_list['Category'] = standardize_string_column(st.session_state.people_list['Category'])
+    data = gcs_utils.download_from_gcs(GS_BUCKET_NAME, PEOPLE_LIST_BLOB)
+    st.session_state.people_list = standardize_people_list(pd.read_csv(data))
+
+def standardize_people_list(people_list):
+    people_list['Gender'] = standardize_string_column(people_list['Gender'])
+    people_list['Category'] = standardize_string_column(people_list['Category'])
+    return people_list
 
 def load_image_base64_from_gcs(image_blob_name):
     try:
@@ -154,7 +160,7 @@ def probabilistic_round_selection(possible_questions, asked_df, categories_share
     
     current_round_questions = []
 
-    for _ in range(20):
+    for _ in range(QUESTIONS_PER_ROUND):
         if not asked_df.empty:
             # If the possible_questions pool lacks a specific combination of category and difficulty level
             unique_combos_in_asked = asked_df[asked_df['Category'].isin(categories_share.keys())].groupby(['Category', 'Fame_Level']).size().reset_index()
@@ -219,24 +225,31 @@ def generate_dummy_answers(selected_df, people_list, difficulty):
     for _, question in selected_df.iterrows():
         # Filter candidates with the same gender as the current question (case-insensitive)
         candidates = people_list[people_list['Gender'] == question['Gender'].lower()]
-        
+
+        # Fall back to the whole list if there aren't enough same-gender candidates
+        if len(candidates) < 3:
+            candidates = people_list
+
         # Calculate category probabilities
-        category_probs = np.where(candidates['Category'] == question['Category'].lower(), 0.7, 0.3 / (unique_categories_count - 1))
-        
+        if unique_categories_count > 1:
+            category_probs = np.where(candidates['Category'] == question['Category'].lower(), 0.7, 0.3 / (unique_categories_count - 1))
+        else:
+            category_probs = np.ones(len(candidates))
+
         # Calculate fame level probabilities
         level_probs = np.array([difficulty_distribution[level-1] for level in candidates['Fame_Level']])
-        
+
         # Calculate the total probabilities
         probabilities = category_probs * level_probs
-        
+
         # Normalize the probabilities
         probabilities /= probabilities.sum()
-        
+
         # Randomly select three dummy answers
         dummy_names = np.random.choice(candidates['Name'], size=3, p=probabilities, replace=False)
-        
+
         dummy_answers[question['Name']] = list(dummy_names)
-        
+
     return dummy_answers
 
 def start_quiz():
@@ -246,7 +259,7 @@ def start_quiz():
     st.session_state.streak = 0
     st.session_state.multiplier = 1
 
-    checkbox_dict = {category: st.session_state[category] for category in st.session_state.people_list['Category'].unique().tolist()}
+    checkbox_dict = {category: st.session_state[f"cat_{category}"] for category in st.session_state.people_list['Category'].unique().tolist()}
         
     # Retrieve the selected difficulty from the session state
     selected_difficulty = difficulty_map[st.session_state.selected_difficulty]
@@ -274,17 +287,33 @@ def start_quiz():
     categories_share = categories_share.to_dict()
 
     # Run the corrected probabilistic_round_selection function
-    st.session_state.asked_df, st.session_state.selected_df = probabilistic_round_selection(st.session_state.possible_questions, 
-                                                                                              st.session_state.asked_df, 
+    st.session_state.asked_df, st.session_state.selected_df = probabilistic_round_selection(st.session_state.possible_questions.copy(),
+                                                                                              st.session_state.asked_df,
                                                                                               categories_share,
                                                                                               selected_difficulty)
 
+    # The pool can be smaller than a full round (e.g. a freshly created small category)
+    st.session_state.num_questions = len(st.session_state.selected_df)
+    if st.session_state.num_questions == 0:
+        with st.spinner("No questions available for this selection!"):
+            time.sleep(3)
+        st.session_state.state = 1
+        return
+
     st.session_state.dummy_answers = generate_dummy_answers(st.session_state.selected_df, st.session_state.people_list, selected_difficulty)
+
+    # Shuffle the answer options once per question so reruns don't reorder the buttons
+    st.session_state.question_options = {}
+    for i in range(st.session_state.num_questions):
+        question = st.session_state.selected_df.iloc[i]
+        options = [question['Name']] + st.session_state.dummy_answers[question['Name']]
+        random.shuffle(options)
+        st.session_state.question_options[i] = options
 
     st.session_state.selected_df['Image_GCS_Path'] = 'DATA/Pictures/' + st.session_state.selected_df['Name'].str.replace(' ', '_') + '.png'
     image_paths = st.session_state.selected_df['Image_GCS_Path'].tolist()
-    st.session_state.selected_df['Image_Base64'] = load_images_in_parallel(image_paths)   
-    
+    st.session_state.selected_df['Image_Base64'] = load_images_in_parallel(image_paths)
+
     st.session_state.answers = {}
     st.session_state.state = 2
     st.session_state.counter = 0
@@ -297,19 +326,125 @@ def display_form():
 
     st.write("\n")
 
-    unique_categories = st.session_state.people_list['Category'].unique().tolist()
+    play_tab, create_tab = st.tabs(["Play", "➕ Create a category"])
 
-    with st.form(key='my_form'):
-        # Display checkboxes for category selection
-        checkbox_dict = {category: st.checkbox(category, key=category, value=True) for category in unique_categories}
-        
-        # Display dropdown for difficulty selection with display values
-        difficulty_levels = list(difficulty_map.keys())
-        selected_difficulty = st.selectbox('Select Difficulty Level:', difficulty_levels, key="selected_difficulty", index=1)
+    with play_tab:
+        unique_categories = st.session_state.people_list['Category'].unique().tolist()
 
-        # Start Quiz button
-        submit_button = st.form_submit_button(label='Start Quiz', 
-                                  on_click=start_quiz)
+        with st.form(key='my_form'):
+            # Display checkboxes for category selection
+            # Prefix widget keys so user-created category names can't collide with app session keys
+            checkbox_dict = {category: st.checkbox(category, key=f"cat_{category}", value=True) for category in unique_categories}
+
+            # Display dropdown for difficulty selection with display values
+            difficulty_levels = list(difficulty_map.keys())
+            selected_difficulty = st.selectbox('Select Difficulty Level:', difficulty_levels, key="selected_difficulty", index=1)
+
+            # Start Quiz button
+            submit_button = st.form_submit_button(label='Start Quiz',
+                                      on_click=start_quiz)
+
+    with create_tab:
+        display_create_category()
+
+# Function to display the "create your own category" tab
+def display_create_category():
+
+    # Show the outcome of a category creation completed on the previous run
+    result = st.session_state.pop("new_category_result", None)
+    if result:
+        st.success(f"Added {result['added']} people to the new '{result['category']}' category — "
+                   f"select it in the Play tab to try it out! 🎉")
+        if result["skipped"]:
+            with st.expander(f"{len(result['skipped'])} people were skipped"):
+                for line in result["skipped"]:
+                    st.write(f"- {line}")
+
+    st.write("Type any topic (e.g. *tennis players*, *French actors*, *astronauts*) and the app will "
+             "build a new quiz category for it: an AI model picks the people and writes the hints, "
+             "their portraits are fetched from Wikipedia, and the faces are detected and cropped automatically.")
+
+    category = st.text_input("Category", key="new_category_name", placeholder="e.g. tennis players")
+    n_people = st.slider("Number of people to generate", min_value=9, max_value=30, value=18, step=3,
+                         key="new_category_size")
+
+    existing_categories = set(st.session_state.people_list['Category'].unique())
+    category_clean = category.strip().lower()
+
+    if st.button("Generate category", type="primary", disabled=not category_clean):
+        if category_clean in existing_categories:
+            st.warning(f"The category '{category_clean}' already exists. Pick another name, or play it from the Play tab.")
+        else:
+            build_new_category(category_clean, n_people)
+
+# Function to run the full category creation pipeline and persist the results
+def build_new_category(category, n_people):
+    people_list = st.session_state.people_list
+
+    with st.status(f"Building the '{category}' category...", expanded=True) as status:
+        st.write("🤖 Asking the AI model for a list of people...")
+        try:
+            people = category_builder.generate_people_with_llm(category, people_list['Name'].tolist(), n=n_people)
+        except Exception as e:
+            status.update(label="Category generation failed", state="error")
+            st.error(f"Could not generate the list of people: {e}")
+            return
+
+        if not people:
+            status.update(label="Category generation failed", state="error")
+            st.error("The AI model did not return any usable people for this category. Try rephrasing it.")
+            return
+
+        st.write(f"🖼️ Fetching and cropping pictures for {len(people)} people from Wikipedia...")
+        progress_bar = st.progress(0.0)
+        added, skipped = [], []
+        for i, person in enumerate(people):
+            png_bytes, failure_reason = category_builder.build_person_picture(person['name'])
+            if png_bytes is None:
+                skipped.append(f"{person['name']}: {failure_reason}")
+            else:
+                try:
+                    gcs_utils.upload_bytes_to_gcs(GS_BUCKET_NAME,
+                                                  category_builder.blob_name_for(person['name']),
+                                                  png_bytes,
+                                                  content_type="image/png")
+                    added.append(person)
+                except Exception as e:
+                    skipped.append(f"{person['name']}: picture upload failed ({e})")
+            progress_bar.progress((i + 1) / len(people), text=person['name'])
+
+        if len(added) < 4:
+            status.update(label="Category generation failed", state="error")
+            st.error("Not enough usable pictures were found to build this category. Try a different topic.")
+            return
+
+        st.write("💾 Saving the new category...")
+        new_rows = pd.DataFrame([{
+            'Name': person['name'],
+            'Gender': person['gender'],
+            'Category': category,
+            'Fame_Level': person['fame_level'],
+            'Short_Description': person['short_description'],
+        } for person in added])
+
+        try:
+            updated_list = standardize_people_list(pd.concat([people_list, new_rows], ignore_index=True))
+            csv_bytes = updated_list.to_csv(index=False).encode('utf-8')
+            gcs_utils.upload_bytes_to_gcs(GS_BUCKET_NAME, PEOPLE_LIST_BLOB, csv_bytes, content_type="text/csv")
+        except Exception as e:
+            status.update(label="Category generation failed", state="error")
+            st.error(f"Could not save the updated people list: {e}")
+            return
+
+        st.session_state.people_list = updated_list
+        st.session_state.new_category_result = {
+            "category": category,
+            "added": len(added),
+            "skipped": skipped,
+        }
+
+    # Rerun so the Play tab (rendered before this pipeline ran) picks up the new category
+    st.rerun()
 
 # Function to handle submit answer button click
 def submit_answer(answer):
@@ -343,7 +478,7 @@ def submit_answer(answer):
     st.session_state.answers[st.session_state.counter] = answer
 
     # Move to the next question or end the quiz if it was the last question
-    if st.session_state.counter < 19: 
+    if st.session_state.counter < st.session_state.num_questions - 1:
         st.session_state.counter += 1
     else:
         st.session_state.state = 3
@@ -368,25 +503,22 @@ def display_question():
     question = st.session_state.selected_df.iloc[st.session_state.counter]
     
     # Display the question
-    col1.markdown(format_title(f"{st.session_state.counter+1}/20"),unsafe_allow_html=True)
-    
+    col1.markdown(format_title(f"{st.session_state.counter+1}/{st.session_state.num_questions}"),unsafe_allow_html=True)
+
     cols = st.columns([5,5])
 
-    # cols[0].image(question['Image'], use_column_width=True)
     cols[0].markdown(display_image_base64(question['Image_Base64'],70), unsafe_allow_html=True)
 
-    # Define possible answers
-    options = [question['Name']] + st.session_state.dummy_answers[question['Name']]
-    random.shuffle(options)
+    # Retrieve the pre-shuffled answers for this question
+    options = st.session_state.question_options[st.session_state.counter]
 
     # Initialize question_start_times dictionary in the session state if not present
     if "question_start_times" not in st.session_state:
         st.session_state.question_start_times = {}
-    
+
     # Check if a start time for the current question exists
     if st.session_state.counter not in st.session_state.question_start_times:
         st.session_state.question_start_times[st.session_state.counter] = time.time()
-        st.session_state.t_end = st.session_state.question_start_times[st.session_state.counter] + 1
 
     cols[1].subheader("Who is this person?", anchor=False)
     cols[1].markdown("\n")
@@ -438,12 +570,14 @@ def display_results():
 
     st.empty()
 
-    if st.session_state.correct_answers == 20:
+    num_questions = st.session_state.num_questions
+
+    if st.session_state.correct_answers == num_questions:
         st.balloons()
-        st.subheader("Congratulations! You answered **all** 20 questions correctly.", anchor=False)
+        st.subheader(f"Congratulations! You answered **all** {num_questions} questions correctly.", anchor=False)
     else:
         # Display correct answer count and success rate
-        st.write(f"You answered {st.session_state.correct_answers} out of 20 questions correctly ({int(st.session_state.correct_answers/20*100)}%).")
+        st.write(f"You answered {st.session_state.correct_answers} out of {num_questions} questions correctly ({int(st.session_state.correct_answers/num_questions*100)}%).")
 
     # Display the total score
     col1, colx, col2, col3 = st.columns([3, 3, 5, 3])
@@ -461,19 +595,17 @@ def display_results():
     col3.markdown(format_title(formatted_score,align='right'), unsafe_allow_html=True)
 
     # Display each question, the user's answer, and the correct answer
-    for i in range(20):
+    for i in range(num_questions):
 
         st.write("-----")
 
         col1, col2, col3 = st.columns([3,8,3])
-        # image = st.session_state.selected_df.iloc[i]['Image']
         image = st.session_state.selected_df.iloc[i]['Image_Base64']
         name = st.session_state.selected_df.iloc[i]['Name']
         text = st.session_state.selected_df.iloc[i]['Short_Description']
 
         breakdown = st.session_state.score_breakdown[i]
 
-        # col1.image(image, use_column_width=True)
         col1.markdown(display_image_base64(image,90), unsafe_allow_html=True)
 
         if breakdown['total_score'] != 0:
@@ -495,51 +627,16 @@ def display_results():
 def reset():
     st.session_state.clear()
 
-
-##### FOR DEBUG PURPOSES
-# # import json
-# # # Convert session state to a serializable format
-# # def serialize_session_state(state):
-# #     serializable_state = {}
-# #     for key, value in state.items():
-# #         if isinstance(value, pd.DataFrame):
-# #             # Convert DataFrame to CSV string
-# #             serializable_state[key] = {
-# #                 "__type__": "DataFrame",
-# #                 "data": value.to_csv(index=False)
-# #             }
-# #         else:
-# #             serializable_state[key] = value
-# #     return serializable_state
-
 # Main function
 def main():
 
-    #st.empty()
-
-    #### FOR DEBUG PURPOSES
-    # # Reset button
-    # #reset_button = st.button('Reset Game', on_click=reset)
-
-    # # st.session_state
-    
-    # # # Save the serializable session state to a JSON file
-    # # serialized_state = serialize_session_state(st.session_state)
-    # # with open('session_state.json', 'w') as f:
-    # #     json.dump(serialized_state, f)
-
-    # # # Create a download button in Streamlit for the JSON file
-    # # st.download_button(
-    # #     label="Download session state",
-    # #     data=open('session_state.json', 'rb'),
-    # #     file_name='session_state.json',
-    # #     mime='application/json'
-    # # )
-
-
     # Initialize session state variables
     if "people_list" not in st.session_state:
-        init()
+        try:
+            init()
+        except Exception as e:
+            st.error(f"Could not load the people list from storage: {e}")
+            st.stop()
 
     if "asked_df" not in st.session_state:
         st.session_state.asked_df = pd.DataFrame(columns=st.session_state.people_list.columns)
