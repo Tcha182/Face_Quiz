@@ -44,7 +44,7 @@ Rules:
 - Use the exact name of their English Wikipedia page (without any disambiguation suffix in parentheses).
 - fame_level: 1 = world famous, 2 = well known, 3 = known mostly to fans of the field. Aim for a roughly even split across the three levels.
 - Include a mix of genders when the category allows it. Use "other" only when neither "male" nor "female" applies.
-- short_description: one sentence of at most 20 words describing the person. It is shown as a hint during the quiz, so it MUST NOT contain the person's name (first or last) or initials.
+- short_description: one sentence of at most 20 words describing the person. It is shown as a hint during the quiz, so it MUST NOT contain the person's name (first or last) or initials. Questions from different categories are mixed together in the same quiz, so do NOT assume the category "{category}" is known to the reader (e.g. do not write "this tennis player..." or "in this sport, ..."); the description must stand on its own and state the person's field/profession explicitly.
 - Do not include any of these people, they are already in the quiz: {excluded}
 """
 
