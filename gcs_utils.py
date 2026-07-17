@@ -38,6 +38,14 @@ def download_from_gcs(bucket_name, blob_name):
     data.seek(0)  # Rewind the file pointer for reading
     return data
 
+def delete_from_gcs(bucket_name, blob_name):
+    """Deletes a file from GCS. Missing files are ignored."""
+    client = initialize_client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+    if blob.exists():
+        blob.delete()
+
 def file_exists_in_gcs(bucket_name, blob_name):
     """Checks if a file exists in GCS."""
     client = initialize_client()
