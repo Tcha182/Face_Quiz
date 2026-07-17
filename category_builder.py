@@ -99,7 +99,6 @@ def generate_people_with_llm(category, existing_names, n=18):
             "type": "json_schema",
             "json_schema": {"name": "people_list", "strict": True, "schema": LLM_RESPONSE_SCHEMA},
         },
-        temperature=0.7,
     )
     data = json.loads(response.choices[0].message.content)
 
