@@ -21,7 +21,7 @@ from openai import OpenAI
 WIKI_API_URL = "https://en.wikipedia.org/w/api.php"
 WIKIDATA_API_URL = "https://www.wikidata.org/w/api.php"
 COMMONS_API_URL = "https://commons.wikimedia.org/w/api.php"
-HTTP_HEADERS = {"User-Agent": "FaceQuizBot/1.0 (https://facequiz.streamlit.app/; [redacted])"}
+HTTP_HEADERS = {"User-Agent": "FaceQuizBot/1.0 (https://facequiz.streamlit.app/; https://github.com/Tcha182/face_quiz)"}
 REQUEST_TIMEOUT = 20  # seconds
 
 # Portrait format, matching the original dataset: a 500x500 face crop with a
